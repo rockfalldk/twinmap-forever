@@ -1,9 +1,16 @@
 import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import koffi from 'koffi'
 import { expect, test } from 'vitest'
-import { exeTokenOf, pixelsFrom } from './capture-x11'
+import { exeTokenOf, pixelsFrom, X11_FUNCS } from './capture-x11'
 import { winePathToUnix, winePrefixes } from './client-files'
+
+// A signature koffi cannot parse would only show up on a player's screen: parse them all here.
+test('every X11 signature parses in koffi', () => {
+  for (const sig of Object.values(X11_FUNCS)) koffi.proto(sig)
+  expect(koffi.register(() => 0, koffi.pointer(koffi.proto('int __cdecl TestErr(void *display, void *event)')))).toBeTypeOf('bigint')
+})
 
 test('the pixels of an X11 image come out red first, or in the order blue, green, red, unused of a row', () => {
   // 2x2 pixels of 32 bits, little endian, the masks of a usual screen: red 0xff0000, green 0xff00, blue 0xff.

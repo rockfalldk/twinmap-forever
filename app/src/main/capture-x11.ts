@@ -29,7 +29,9 @@ koffi.struct('XImage', {
   f: koffi.struct('XImageFuncs', { create_image: 'void *', destroy_image: 'void *', get_pixel: 'void *', put_pixel: 'void *', sub_image: 'void *', add_pixel: 'void *' }),
 })
 koffi.struct('XClassHint', { res_name: 'char *', res_class: 'char *' })
-koffi.proto('int __cdecl XErrorHandler(void *display, void *event)')
+// A prototype cannot be a parameter type in koffi, so the error handler goes in as a void *:
+// a pointer made by koffi.register below.
+const XErrorHandler = koffi.proto('int __cdecl XErrorHandler(void *display, void *event)')
 
 let api: ReturnType<typeof load> | null = null
 let failed = false
@@ -60,6 +62,29 @@ function displayNames(): (string | null)[] {
   return out
 }
 
+/**
+ * Every X11 call this file makes, as a koffi signature. capture-x11.test.ts parses them all, so a
+ * signature koffi rejects fails the tests instead of the app on a player's screen (a prototype may
+ * not be a parameter type: the error handler goes in as a void *).
+ */
+export const X11_FUNCS = {
+  OpenDisplay: 'void * __cdecl XOpenDisplay(const char *name)',
+  CloseDisplay: 'int __cdecl XCloseDisplay(void *)',
+  DefaultRootWindow: 'uint64_t __cdecl XDefaultRootWindow(void *)',
+  QueryTree: 'int __cdecl XQueryTree(void *, uint64_t, _Out_ uint64_t *, _Out_ uint64_t *, _Out_ void **, _Out_ uint32_t *)',
+  Free: 'int __cdecl XFree(void *)',
+  InternAtom: 'uint64_t __cdecl XInternAtom(void *, const char *, int)',
+  GetWindowProperty: 'int __cdecl XGetWindowProperty(void *, uint64_t, uint64_t, long, long, int, uint64_t, _Out_ uint64_t *, _Out_ int *, _Out_ uint64_t *, _Out_ uint64_t *, _Out_ uint8_t **)',
+  GetWindowAttributes: 'int __cdecl XGetWindowAttributes(void *, uint64_t, XWindowAttributes *)',
+  GetGeometry: 'int __cdecl XGetGeometry(void *, uint64_t, _Out_ uint64_t *, _Out_ int *, _Out_ int *, _Out_ uint32_t *, _Out_ uint32_t *, _Out_ uint32_t *, _Out_ uint32_t *)',
+  TranslateCoordinates: 'int __cdecl XTranslateCoordinates(void *, uint64_t, uint64_t, int, int, _Out_ int *, _Out_ int *, _Out_ uint64_t *)',
+  GetImage: 'void * __cdecl XGetImage(void *, uint64_t, int, int, uint32_t, uint32_t, uint64_t, int)',
+  DestroyImage: 'int __cdecl XDestroyImage(void *)',
+  FetchName: 'int __cdecl XFetchName(void *, uint64_t, _Out_ char **)',
+  GetClassHint: 'int __cdecl XGetClassHint(void *, uint64_t, XClassHint *)',
+  SetErrorHandler: 'void * __cdecl XSetErrorHandler(void *, void *)',
+} as const
+
 function load() {
   let lib: ReturnType<typeof koffi.load>
   try {
@@ -67,7 +92,8 @@ function load() {
   } catch {
     lib = koffi.load('libX11.so')
   }
-  const OpenDisplay = lib.func('void * __cdecl XOpenDisplay(const char *name)')
+  const fns = Object.fromEntries(Object.entries(X11_FUNCS).map(([k, s]) => [k, lib.func(s)])) as Record<keyof typeof X11_FUNCS, ReturnType<typeof lib.func>>
+  const OpenDisplay = fns.OpenDisplay
   // DISPLAY may be unset on a Wayland session where XWayland still listens: try every socket there too.
   const dpy = displayNames().map((d) => OpenDisplay(d) as unknown).find(Boolean)
   if (!dpy) {
@@ -81,27 +107,10 @@ function load() {
       `no X display (session=${process.env.XDG_SESSION_TYPE ?? '?'}, DISPLAY=${process.env.DISPLAY ?? 'unset'}, XAUTHORITY=${process.env.XAUTHORITY ?? 'unset'}, sockets=${sockets}); run the game through X11/XWayland for the screen to be read`,
     )
   }
-  const api = {
-    dpy,
-    root: 0n as bigint,
-    CloseDisplay: lib.func('int __cdecl XCloseDisplay(void *)'),
-    DefaultRootWindow: lib.func('uint64_t __cdecl XDefaultRootWindow(void *)'),
-    QueryTree: lib.func('int __cdecl XQueryTree(void *, uint64_t, _Out_ uint64_t *, _Out_ uint64_t *, _Out_ void **, _Out_ uint32_t *)'),
-    Free: lib.func('int __cdecl XFree(void *)'),
-    InternAtom: lib.func('uint64_t __cdecl XInternAtom(void *, const char *, int)'),
-    GetWindowProperty: lib.func('int __cdecl XGetWindowProperty(void *, uint64_t, uint64_t, long, long, int, uint64_t, _Out_ uint64_t *, _Out_ int *, _Out_ uint64_t *, _Out_ uint64_t *, _Out_ uint8_t **)'),
-    GetWindowAttributes: lib.func('int __cdecl XGetWindowAttributes(void *, uint64_t, XWindowAttributes *)'),
-    GetGeometry: lib.func('int __cdecl XGetGeometry(void *, uint64_t, _Out_ uint64_t *, _Out_ int *, _Out_ int *, _Out_ uint32_t *, _Out_ uint32_t *, _Out_ uint32_t *, _Out_ uint32_t *)'),
-    TranslateCoordinates: lib.func('int __cdecl XTranslateCoordinates(void *, uint64_t, uint64_t, int, int, _Out_ int *, _Out_ int *, _Out_ uint64_t *)'),
-    GetImage: lib.func('void * __cdecl XGetImage(void *, uint64_t, int, int, uint32_t, uint32_t, uint64_t, int)'),
-    DestroyImage: lib.func('int __cdecl XDestroyImage(void *)'),
-    FetchName: lib.func('int __cdecl XFetchName(void *, uint64_t, _Out_ char **)'),
-    GetClassHint: lib.func('int __cdecl XGetClassHint(void *, uint64_t, XClassHint *)'),
-    SetErrorHandler: lib.func('void * __cdecl XSetErrorHandler(void *, XErrorHandler)'),
-  }
+  const api = { dpy, root: 0n as bigint, ...fns }
   api.root = api.DefaultRootWindow(dpy) as bigint
   // Without this, reading a window that is gone in the meantime would end the process.
-  const noError = koffi.register(() => 0, koffi.proto('int __cdecl XErrorHandler(void *display, void *event)'))
+  const noError = koffi.register(() => 0, koffi.pointer(XErrorHandler))
   api.SetErrorHandler(dpy, noError)
   return api
 }
