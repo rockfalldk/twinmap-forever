@@ -21,13 +21,19 @@ koffi.struct('XWindowAttributes', {
   colormap: 'uint64_t', map_installed: 'int', map_state: 'int', all_event_masks: 'int64_t',
   your_event_mask: 'int64_t', do_not_propagate_mask: 'int64_t', override_redirect: 'int', screen: 'void *',
 })
-koffi.struct('XImage', {
+const XImageT = koffi.struct('XImage', {
   width: 'int', height: 'int', xoffset: 'int', data: 'void *', format: 'int', bitmap: 'void *',
   byte_order: 'int', bitmap_unit: 'int', bitmap_bit_order: 'int', bitmap_pad: 'int', depth: 'int',
   bytes_per_line: 'int', bits_per_pixel: 'int', red_mask: 'uint64_t', green_mask: 'uint64_t', blue_mask: 'uint64_t',
   obdata: 'void *',
   f: koffi.struct('XImageFuncs', { create_image: 'void *', destroy_image: 'void *', get_pixel: 'void *', put_pixel: 'void *', sub_image: 'void *', add_pixel: 'void *' }),
 })
+
+/** The last anomaly while reading a window, for the record (empty when all reads went well). */
+let lastRead = ''
+export function readNote(): string {
+  return lastRead
+}
 koffi.struct('XClassHint', { res_name: 'char *', res_class: 'char *' })
 // A prototype cannot be a parameter type in koffi, so the error handler goes in as a void *:
 // a pointer made by koffi.register below.
@@ -307,14 +313,33 @@ export function pixelsFrom(data: Buffer, width: number, height: number, bytesPer
 
 /** A rectangle of the window, as shown on screen, read with XGetImage. Null when there is nothing to read, or the rectangle reaches past the window. */
 function imageOf(a: NonNullable<ReturnType<typeof x11>>, hwnd: WindowHandle, x: number, y: number, width: number, height: number, order: 'rgb' | 'bgra'): Uint8Array | null {
-  const img = a.GetImage(a.dpy, hwnd, x, y, width, height, ALL_PLANES, ZPIXMAP) as unknown
+  let img: unknown
+  try {
+    img = a.GetImage(a.dpy, hwnd, x, y, width, height, ALL_PLANES, ZPIXMAP)
+  } catch (e) {
+    lastRead = `GetImage failed: ${e instanceof Error ? e.message : e}`
+    return null
+  }
   if (!img) return null
   try {
-    const im = koffi.decode(img, 'XImage') as { bytes_per_line: number; height: number; bits_per_pixel: number; byte_order: number; red_mask: bigint; green_mask: bigint; blue_mask: bigint; data: unknown }
-    const data = koffi.decode(im.data, koffi.array('uint8_t', im.bytes_per_line * im.height, 'Buffer')) as Buffer
+    const im = koffi.decode(img, XImageT) as { width: number; height: number; bytes_per_line: number; bits_per_pixel: number; format: number; byte_order: number; red_mask: bigint; green_mask: bigint; blue_mask: bigint; data: unknown }
+    const len = (im.bytes_per_line | 0) * (im.height | 0)
+    if (!im.data || !(len > 0)) {
+      lastRead = `empty image: w=${im.width} h=${im.height} bpl=${im.bytes_per_line} bpp=${im.bits_per_pixel} fmt=${im.format}`
+      return null
+    }
+    const data = koffi.decode(im.data, koffi.array('uint8_t', len, 'Buffer')) as Buffer
+    lastRead = ''
     return pixelsFrom(data, width, height, im.bytes_per_line, im.bits_per_pixel, im.byte_order === 0, Number(im.red_mask), Number(im.green_mask), Number(im.blue_mask), order)
+  } catch (e) {
+    lastRead = `image read failed: ${e instanceof Error ? e.message : e}`
+    return null
   } finally {
-    a.DestroyImage(img)
+    try {
+      a.DestroyImage(img)
+    } catch {
+      // the window is already gone
+    }
   }
 }
 

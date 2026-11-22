@@ -64,3 +64,6 @@ export const showsOnly = (hwnd: WindowHandle, x: number, y: number, size: number
  * empty on Windows). What the screen holds, so a miss says why.
  */
 export const describeScreen = (): string[] => (process.platform === 'win32' ? [] : x11.describeScreen())
+
+/** The last anomaly while reading a window (Linux; empty on Windows or when all reads went well). */
+export const readNote = (): string => (process.platform === 'win32' ? '' : x11.readNote())
