@@ -31,7 +31,8 @@ test('the program of a Wine process is the .exe in its command line', () => {
   expect(exeTokenOf('some daemon\0--flag\0')).toBeNull()
 })
 
-test('a Windows path under Wine maps through the prefixes, and another drive to /', () => {
+// Wine prefixes are a Linux thing: on Windows this test has nothing to map through.
+test.skipIf(process.platform === 'win32')('a Windows path under Wine maps through the prefixes, and another drive to /', () => {
   const prefix = mkdtempSync(join(tmpdir(), 'twinmap-wine-'))
   mkdirSync(join(prefix, 'drive_c', 'Games', 'World of Warcraft', '_forever_'), { recursive: true })
   process.env.WINEPREFIX = prefix
