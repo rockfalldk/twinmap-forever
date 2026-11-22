@@ -328,7 +328,8 @@ function imageOf(a: NonNullable<ReturnType<typeof x11>>, hwnd: WindowHandle, x: 
     const im = koffi.decode(img, XImageT) as { width: number; height: number; bytes_per_line: number; bits_per_pixel: number; format: number; byte_order: number; red_mask: bigint; green_mask: bigint; blue_mask: bigint; data: unknown }
     const len = (im.bytes_per_line | 0) * (im.height | 0)
     if (!im.data || !(len > 0)) {
-      lastRead = `empty image: w=${im.width} h=${im.height} bpl=${im.bytes_per_line} bpp=${im.bits_per_pixel} fmt=${im.format}`
+      const raw = koffi.decode(img, koffi.array('uint8_t', 96, 'Buffer')) as Buffer
+      lastRead = `empty image req=${width}x${height}: w=${im.width} h=${im.height} bpl=${im.bytes_per_line} bpp=${im.bits_per_pixel} fmt=${im.format} img=${typeof img} raw=${raw.toString('hex')}`
       return null
     }
     const data = koffi.decode(im.data, koffi.array('uint8_t', len, 'Buffer')) as Buffer
