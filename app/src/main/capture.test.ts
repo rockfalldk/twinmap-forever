@@ -11,18 +11,23 @@ import { findWindow, findWindowOf, readBox, readRect, readRow, type WindowHandle
 // a title that is not "World of Warcraft".
 const TITLE = `魔兽世界 Twinmap capture test ${process.pid}`
 const WIDTH = 640, HEIGHT = 60
+// The test window is drawn by capture.test.ps1 with the Windows graphics calls: the whole file runs on Windows only.
+const WINDOWS = process.platform === 'win32'
 const fake = join(tmpdir(), `twinmap-capture-${process.pid}`)
-mkdirSync(join(fake, '_forever_'), { recursive: true })
-copyFileSync(join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), join(fake, '_forever_', 'Wow.exe'))
-
-const child = spawn(
-  join(fake, '_forever_', 'Wow.exe'),
-  ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(__dirname, 'capture.test.ps1'), TITLE, String(WIDTH), String(HEIGHT)],
-  { stdio: ['ignore', 'ignore', 'inherit'] },
-)
+let child: ReturnType<typeof spawn> | null = null
+if (WINDOWS) {
+  mkdirSync(join(fake, '_forever_'), { recursive: true })
+  copyFileSync(join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), join(fake, '_forever_', 'Wow.exe'))
+  child = spawn(
+    join(fake, '_forever_', 'Wow.exe'),
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', join(__dirname, 'capture.test.ps1'), TITLE, String(WIDTH), String(HEIGHT)],
+    { stdio: ['ignore', 'ignore', 'inherit'] },
+  )
+}
 let hwnd: WindowHandle | null = null
 
 beforeAll(async () => {
+  if (!WINDOWS) return
   // Up to a minute: on a busy machine PowerShell alone can take more than 15 seconds to start.
   for (let i = 0; i < 600 && !hwnd; i++) {
     await sleep(100)
@@ -37,7 +42,8 @@ beforeAll(async () => {
   }
 }, 70_000)
 afterAll(async () => {
-  const gone = new Promise((done) => child.once('exit', done))
+  if (!child) return
+  const gone = new Promise((done) => child!.once('exit', done))
   child.kill()
   await gone
   rmSync(fake, { recursive: true, force: true, maxRetries: 20 })
@@ -49,28 +55,28 @@ function expected(cell: (x: number) => number): number[] {
 }
 const colors = (row: Buffer | null): number[] => [...(row ?? [])].filter((_, i) => i % 4 !== 3)
 
-test('the top row of a window is read pixel by pixel', () => {
+test.skipIf(!WINDOWS)('the top row of a window is read pixel by pixel', () => {
   expect(hwnd, 'the test window did not open').not.toBeNull()
   const row = readRow(hwnd!, 'top')
   expect(row?.length).toBe(WIDTH * 4)
   expect(colors(row)).toEqual(expected((x) => (x * 7 + 3) % 8))
 })
 
-test('the bottom row is read too, and it is another row', () => {
+test.skipIf(!WINDOWS)('the bottom row is read too, and it is another row', () => {
   expect(colors(readRow(hwnd!, 'bottom'))).toEqual(expected((x) => (x * 5 + 1) % 8))
 })
 
-test('the game is found by its program, whatever its title', () => {
+test.skipIf(!WINDOWS)('the game is found by its program, whatever its title', () => {
   expect(findWindowOf(new RegExp(`\\\\twinmap-capture-${process.pid}\\\\_forever_\\\\Wow\\.exe$`, 'i'))).toBe(hwnd)
   expect(findWindowOf(/\\no such folder\\Wow\.exe$/i)).toBeNull()
 })
 
-test('a window that does not exist is not found, and gives no row', () => {
+test.skipIf(!WINDOWS)('a window that does not exist is not found, and gives no row', () => {
   expect(findWindow('Twinmap: no such window')).toBeNull()
   expect(readRow(0x7fff_fff0n)).toBeNull()
 })
 
-test('a square of the window is read too: its first row is the top row, red first', () => {
+test.skipIf(!WINDOWS)('a square of the window is read too: its first row is the top row, red first', () => {
   const box = readBox(hwnd!, 0, 0, 16)
   expect(box?.rgb.length).toBe(16 * 16 * 3)
   const top = expected((x) => (x * 7 + 3) % 8).slice(0, 16 * 3)
@@ -82,7 +88,7 @@ test('a square of the window is read too: its first row is the top row, red firs
   expect(readBox(0x7fff_fff0n, 0, 0, 16)).toBeNull()
 })
 
-test('a rectangle is read only off the window itself when asked so: not off what lies over it', () => {
+test.skipIf(!WINDOWS)('a rectangle is read only off the window itself when asked so: not off what lies over it', () => {
   // The test window is over all others at the top left of the screen: its own pixels are read, the desktop's under it are not.
   expect(readRect(hwnd!, 0, 0, 20, 10, true)?.rgb.length).toBe(20 * 10 * 3)
   const desktop = findWindow('Program Manager')

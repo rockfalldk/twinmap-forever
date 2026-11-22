@@ -45,9 +45,9 @@ You do not have to take our word for it: the code is all here, every release can
 <details>
 <summary><b>What you need, and installing by hand</b></summary>
 
-- Windows 10 or 11
+- Windows 10 or 11, or Linux with a .deb from the releases page and the game under Wine (on X11, or on Wayland through XWayland)
 - World of Warcraft: Forever
-- The game running and not minimized while you use the map
+- The game running and not minimized while you use the map; on Linux the app finds the game in the usual Wine prefixes, or you pick its folder by hand in Settings
 
 The CurseForge app installs [QuestieDB](https://www.curseforge.com/wow/addons/questiedb) with the addon: the data about NPCs, items and quests that the map reads. If you install the addon by hand, get QuestieDB too.
 

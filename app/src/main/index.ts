@@ -20,7 +20,7 @@ import { tilesLine, type TilesStatus } from '../shared/tiles-status'
 import { placeWindow, WINDOW, ZOOMS, zoomStep } from '../shared/window'
 import { findGameWindow, programOf } from './capture'
 import { readHdr } from './hdr'
-import { gameFolderFrom, installedBuild, registryInstallPath } from './client-files'
+import { gameFolderFrom, installedBuild, registryInstallPath, wineInstallPaths } from './client-files'
 import { homeAddress, LAN_PORT, startLan, type Lan, type Served } from './lan'
 import { startLink } from './link'
 import { startBosses } from './bosses'
@@ -53,11 +53,12 @@ const BLANK = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='
 protocol.registerSchemesAsPrivileged([{ scheme: 'twinmap', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
 
 // The game folder: the one the player picked, else the one of the game that is running, else the
-// one the game's installer wrote down. TWINMAP_GAME, for trials, is looked at alone (a folder with no game in it: none found).
+// one the game's installer wrote down (the registry on Windows, the Wine prefixes on Linux).
+// TWINMAP_GAME, for trials, is looked at alone (a folder with no game in it: none found).
 function findGameFolder(picked: string | undefined): string | null {
   if (process.env.TWINMAP_GAME !== undefined) return gameFolderFrom([process.env.TWINMAP_GAME])
   const running = findGameWindow()
-  return gameFolderFrom([picked ?? null, running === null ? null : programOf(running), registryInstallPath()])
+  return gameFolderFrom([picked ?? null, running === null ? null : programOf(running), registryInstallPath(), ...wineInstallPaths()])
 }
 
 // Makes the map tiles from the game's files, once per build of the game, and keeps the latest word on it.
