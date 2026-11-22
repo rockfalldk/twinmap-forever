@@ -4,7 +4,7 @@
 // the first call, so that this file can sit bundled on Windows too, where capture.ts never calls
 // it; with no X display (DISPLAY unset, no XWayland) every function here gives null.
 import koffi from 'koffi'
-import { existsSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, readlinkSync } from 'node:fs'
 import { winePathToUnix } from './client-files'
 
 /** A window, as X11 names it: an XID. */
@@ -33,15 +33,31 @@ koffi.proto('int __cdecl XErrorHandler(void *display, void *event)')
 
 let api: ReturnType<typeof load> | null = null
 let failed = false
+let whyNoDisplay = ''
 function x11(): ReturnType<typeof load> | null {
   if (api) return api
   if (failed) return null
   try {
     return (api = load())
-  } catch {
+  } catch (e) {
     failed = true // no X display, or no libX11: nothing here can be read
+    whyNoDisplay = e instanceof Error ? e.message : String(e)
     return null
   }
+}
+
+/** The X displays to try: DISPLAY, the usual numbers, and every socket in /tmp/.X11-unix. */
+function displayNames(): (string | null)[] {
+  const out: (string | null)[] = [null, ':0', ':1', ':2']
+  try {
+    for (const s of readdirSync('/tmp/.X11-unix')) {
+      const m = /^X(\d+)$/.exec(s)
+      if (m) out.push(`:${m[1]}`)
+    }
+  } catch {
+    // no X sockets at all
+  }
+  return out
 }
 
 function load() {
@@ -52,9 +68,17 @@ function load() {
     lib = koffi.load('libX11.so')
   }
   const OpenDisplay = lib.func('void * __cdecl XOpenDisplay(const char *name)')
-  // DISPLAY may be unset on a Wayland session where XWayland still listens: try the usual ones too.
-  const dpy = ([null, ':0', ':1', ':2'] as (string | null)[]).map((d) => OpenDisplay(d) as unknown).find(Boolean)
-  if (!dpy) throw new Error('XOpenDisplay failed')
+  // DISPLAY may be unset on a Wayland session where XWayland still listens: try every socket there too.
+  const dpy = displayNames().map((d) => OpenDisplay(d) as unknown).find(Boolean)
+  if (!dpy) {
+    let sockets = ''
+    try {
+      sockets = readdirSync('/tmp/.X11-unix').join(',')
+    } catch {
+      sockets = '(no /tmp/.X11-unix)'
+    }
+    throw new Error(`no X display (DISPLAY=${process.env.DISPLAY ?? 'unset'}, XAUTHORITY=${process.env.XAUTHORITY ?? 'unset'}, sockets=${sockets})`)
+  }
   const api = {
     dpy,
     root: 0n as bigint,
@@ -178,7 +202,7 @@ export function findWindow(title: string): WindowHandle | null {
  */
 export function describeScreen(): string[] {
   const a = x11()
-  if (!a) return ['no X display']
+  if (!a) return [`no X display: ${whyNoDisplay}`]
   const out: string[] = []
   for (const w of allWindows(a)) {
     if (mapStateOf(a, w) !== IS_VIEWABLE) continue
