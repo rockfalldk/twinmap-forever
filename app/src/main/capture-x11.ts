@@ -21,14 +21,6 @@ koffi.struct('XWindowAttributes', {
   colormap: 'uint64_t', map_installed: 'int', map_state: 'int', all_event_masks: 'int64_t',
   your_event_mask: 'int64_t', do_not_propagate_mask: 'int64_t', override_redirect: 'int', screen: 'void *',
 })
-const XImageT = koffi.struct('XImage', {
-  width: 'int', height: 'int', xoffset: 'int', data: 'void *', format: 'int', bitmap: 'void *',
-  byte_order: 'int', bitmap_unit: 'int', bitmap_bit_order: 'int', bitmap_pad: 'int', depth: 'int',
-  bytes_per_line: 'int', bits_per_pixel: 'int', red_mask: 'uint64_t', green_mask: 'uint64_t', blue_mask: 'uint64_t',
-  obdata: 'void *',
-  f: koffi.struct('XImageFuncs', { create_image: 'void *', destroy_image: 'void *', get_pixel: 'void *', put_pixel: 'void *', sub_image: 'void *', add_pixel: 'void *' }),
-})
-
 /** The last anomaly while reading a window, for the record (empty when all reads went well). */
 let lastRead = ''
 export function readNote(): string {
@@ -329,16 +321,40 @@ function imageOf(a: NonNullable<ReturnType<typeof x11>>, x: number, y: number, w
   }
   if (!img) return null
   try {
-    const im = koffi.decode(img, XImageT) as { width: number; height: number; bytes_per_line: number; bits_per_pixel: number; format: number; byte_order: number; red_mask: bigint; green_mask: bigint; blue_mask: bigint; data: unknown }
-    const len = (im.bytes_per_line | 0) * (im.height | 0)
-    if (!im.data || !(len > 0)) {
-      const raw = koffi.decode(img, koffi.array('uint8_t', 96, 'Buffer')) as Buffer
-      lastRead = `empty image req=${width}x${height}: w=${im.width} h=${im.height} bpl=${im.bytes_per_line} bpp=${im.bits_per_pixel} fmt=${im.format} img=${typeof img} raw=${raw.toString('hex')}`
+    // The XImage header: data is the pointer at offset 16 (LP64 ABI). The ints around it have
+    // moved between builds, so bits per pixel is found by scanning the header for a sane value,
+    // and the masks fall back to the usual ones. For 32 bits a row is exactly width*4 bytes.
+    const u32 = (off: number): number => koffi.decode(img, off, 'uint32_t') as number
+    const u64 = (off: number): bigint => koffi.decode(img, off, 'uint64_t') as bigint
+    const data = koffi.decode(img, 16, 'void *') as unknown
+    let bpp = u32(64)
+    if (!(bpp === 8 || bpp === 16 || bpp === 24 || bpp === 32)) {
+      for (let off = 8; off <= 88; off += 4) {
+        const v = u32(off)
+        if (v === 8 || v === 16 || v === 24 || v === 32) {
+          bpp = v
+          break
+        }
+      }
+    }
+    let bpl = bpp === 32 ? width * 4 : u32(60)
+    if (!(bpl >= width * Math.ceil(bpp / 8))) bpl = width * Math.ceil(bpp / 8)
+    let red = Number(u64(72)), green = Number(u64(80)), blue = Number(u64(88))
+    if (!red || !green || !blue) {
+      red = 0xff0000
+      green = 0xff00
+      blue = 0xff
+    }
+    const littleEndian = u32(40) !== 1
+    const len = bpl * height
+    if (!data || !(len > 0)) {
+      const raw = Buffer.from(Array.from({ length: 96 }, (_, i) => (koffi.decode(img, i, 'uint8_t') as number) & 0xff))
+      lastRead = `empty image req=${width}x${height}: w=${u32(0)} h=${u32(4)} bpl=${bpl} bpp=${bpp} raw=${raw.toString('hex')}`
       return null
     }
-    const data = koffi.decode(im.data, koffi.array('uint8_t', len, 'Buffer')) as Buffer
+    const buf = koffi.decode(data, koffi.array('uint8_t', len, 'Buffer')) as Buffer
     lastRead = ''
-    return pixelsFrom(data, width, height, im.bytes_per_line, im.bits_per_pixel, im.byte_order === 0, Number(im.red_mask), Number(im.green_mask), Number(im.blue_mask), order)
+    return pixelsFrom(buf, width, height, bpl, bpp, littleEndian, red, green, blue, order)
   } catch (e) {
     lastRead = `image read failed: ${e instanceof Error ? e.message : e}`
     return null
