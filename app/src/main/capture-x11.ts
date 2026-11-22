@@ -314,11 +314,15 @@ export function pixelsFrom(data: Buffer, width: number, height: number, bytesPer
   return out
 }
 
-/** A rectangle of the window, as shown on screen, read with XGetImage. Null when there is nothing to read, or the rectangle reaches past the window. */
-function imageOf(a: NonNullable<ReturnType<typeof x11>>, hwnd: WindowHandle, x: number, y: number, width: number, height: number, order: 'rgb' | 'bgra'): Uint8Array | null {
+/**
+ * A rectangle of the screen, read with XGetImage from the root window at absolute coordinates: the
+ * same pixels a screen capture sees, so a window covered by another gives the coverer's pixels (as
+ * the Windows backend does). Null when there is nothing to read.
+ */
+function imageOf(a: NonNullable<ReturnType<typeof x11>>, x: number, y: number, width: number, height: number, order: 'rgb' | 'bgra'): Uint8Array | null {
   let img: unknown
   try {
-    img = a.GetImage(a.dpy, hwnd, x, y, width, height, ALL_PLANES, ZPIXMAP)
+    img = a.GetImage(a.dpy, a.root, x, y, width, height, ALL_PLANES, ZPIXMAP)
   } catch (e) {
     lastRead = `GetImage failed: ${e instanceof Error ? e.message : e}`
     return null
@@ -358,9 +362,10 @@ export function readRect(hwnd: WindowHandle, x: number, y: number, width: number
   if (!a || width <= 0 || height <= 0) return null
   const size = sizeOf(a, hwnd)
   if (!size || x < 0 || y < 0 || x + width > size.width || y + height > size.height) return null
-  const rgb = imageOf(a, hwnd, x, y, width, height, 'rgb')
+  const at = toRoot(a, hwnd, x, y)
+  const rgb = imageOf(a, at.x, at.y, width, height, 'rgb')
   if (!rgb) return null
-  return { width, height, rgb, at: toRoot(a, hwnd, x, y) }
+  return { width, height, rgb, at }
 }
 
 /** A square of the window, read the same way. */
@@ -390,6 +395,7 @@ export function readRow(hwnd: WindowHandle, edge: 'top' | 'bottom' = 'top'): Buf
   if (!a) return null
   const size = sizeOf(a, hwnd)
   if (!size || size.width <= 0 || size.height <= 0) return null
-  const row = imageOf(a, hwnd, 0, edge === 'top' ? 0 : size.height - 1, size.width, 1, 'bgra')
+  const at = toRoot(a, hwnd, 0, edge === 'top' ? 0 : size.height - 1)
+  const row = imageOf(a, at.x, at.y, size.width, 1, 'bgra')
   return row ? (Buffer.from(row.buffer, row.byteOffset, row.byteLength) as Buffer) : null
 }
