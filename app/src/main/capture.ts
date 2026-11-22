@@ -26,7 +26,10 @@ export const findWindowOf = (program: RegExp): WindowHandle | null => impl.findW
  * by "World of Warcraft"), and other clients of the game share it. Forever runs from _forever_,
  * with either path separator (a Wine path on Linux).
  */
-export const findGameWindow = (): WindowHandle | null => impl.findWindowOf(/[\\/]_forever_[\\/]wow\.exe$/i)
+export const findGameWindow = (): WindowHandle | null =>
+  impl.findWindowOf(/[\\/]_forever_[\\/]wow\.exe$/i) ??
+  // On Linux a window without _NET_WM_PID is known only by its class, which is the bare .exe's name.
+  (process.platform === 'win32' ? null : impl.findWindowOf(/wow\.exe$/i))
 
 /** Whether a window is still there, and whether there is anything of it on screen. */
 export const windowState = (hwnd: WindowHandle): 'gone' | 'minimized' | 'open' => impl.windowState(hwnd)

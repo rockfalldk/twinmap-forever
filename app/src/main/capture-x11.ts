@@ -28,6 +28,7 @@ koffi.struct('XImage', {
   obdata: 'void *',
   f: koffi.struct('XImageFuncs', { create_image: 'void *', destroy_image: 'void *', get_pixel: 'void *', put_pixel: 'void *', sub_image: 'void *', add_pixel: 'void *' }),
 })
+koffi.struct('XClassHint', { res_name: 'char *', res_class: 'char *' })
 koffi.proto('int __cdecl XErrorHandler(void *display, void *event)')
 
 let api: ReturnType<typeof load> | null = null
@@ -50,7 +51,9 @@ function load() {
   } catch {
     lib = koffi.load('libX11.so')
   }
-  const dpy = lib.func('void * __cdecl XOpenDisplay(const char *name)')(null) as unknown
+  const OpenDisplay = lib.func('void * __cdecl XOpenDisplay(const char *name)')
+  // DISPLAY may be unset on a Wayland session where XWayland still listens: try the usual ones too.
+  const dpy = ([null, ':0', ':1', ':2'] as (string | null)[]).map((d) => OpenDisplay(d) as unknown).find(Boolean)
   if (!dpy) throw new Error('XOpenDisplay failed')
   const api = {
     dpy,
@@ -67,6 +70,7 @@ function load() {
     GetImage: lib.func('void * __cdecl XGetImage(void *, uint64_t, int, int, uint32_t, uint32_t, uint64_t, int)'),
     DestroyImage: lib.func('int __cdecl XDestroyImage(void *)'),
     FetchName: lib.func('int __cdecl XFetchName(void *, uint64_t, _Out_ char **)'),
+    GetClassHint: lib.func('int __cdecl XGetClassHint(void *, uint64_t, XClassHint *)'),
     SetErrorHandler: lib.func('void * __cdecl XSetErrorHandler(void *, XErrorHandler)'),
   }
   api.root = api.DefaultRootWindow(dpy) as bigint
@@ -76,13 +80,31 @@ function load() {
   return api
 }
 
-/** The top-level windows of the screen, as X11 ids. */
-function topLevel(a: NonNullable<ReturnType<typeof x11>>): WindowHandle[] {
+/** The children of a window, as X11 ids. */
+function childrenOf(a: NonNullable<ReturnType<typeof x11>>, w: bigint): WindowHandle[] {
   const root = [0n], parent = [0n], children: [unknown] = [null], n = [0]
-  if (!a.QueryTree(a.dpy, a.root, root, parent, children, n) || !children[0]) return []
+  if (!a.QueryTree(a.dpy, w, root, parent, children, n) || !children[0]) return []
   const list = [...(koffi.decode(children[0], koffi.array('uint64_t', n[0]!)) as bigint[])]
   a.Free(children[0])
   return list
+}
+
+/**
+ * Every window of the screen, as X11 ids. The whole tree, not only the root's children: a
+ * reparenting window manager (KWin, Mutter, ...) puts each program's window inside a frame of its
+ * own, and the game's window is then not a top-level one.
+ */
+function allWindows(a: NonNullable<ReturnType<typeof x11>>): WindowHandle[] {
+  const out: WindowHandle[] = []
+  const walk = (w: bigint, depth: number): void => {
+    if (depth > 8) return
+    for (const c of childrenOf(a, w)) {
+      out.push(c)
+      walk(c, depth + 1)
+    }
+  }
+  walk(a.root, 0)
+  return out
 }
 
 /** The process that owns a window, from its _NET_WM_PID, or null. */
@@ -101,12 +123,21 @@ export function exeTokenOf(cmdline: string): string | null {
   return args.find((a) => /\.exe$/i.test(a)) ?? null
 }
 
+/** The class of a window, as the program sets it (Wine sets the .exe's name), or null. */
+function classOf(a: NonNullable<ReturnType<typeof x11>>, hwnd: WindowHandle): string | null {
+  const hint = koffi.alloc('XClassHint', 1)
+  if (!a.GetClassHint(a.dpy, hwnd, hint)) return null
+  const h = koffi.decode(hint, 'XClassHint') as { res_name: unknown; res_class: unknown }
+  const name = h.res_class ? (koffi.decode(h.res_class, 'str') as string) : h.res_name ? (koffi.decode(h.res_name, 'str') as string) : null
+  return name
+}
+
 /** The full path of the program that owns a window, as a path on this computer, or null. */
 export function programOf(hwnd: WindowHandle): string | null {
   const a = x11()
   if (!a) return null
   const pid = pidOf(a, hwnd)
-  if (pid === null) return null
+  if (pid === null) return classOf(a, hwnd) // no _NET_WM_PID: the class is what the program says
   let cmd = ''
   try {
     cmd = readFileSync(`/proc/${pid}/cmdline`, 'latin1')
@@ -131,7 +162,7 @@ export function programOf(hwnd: WindowHandle): string | null {
 export function findWindow(title: string): WindowHandle | null {
   const a = x11()
   if (!a) return null
-  for (const w of topLevel(a)) {
+  for (const w of allWindows(a)) {
     const name: [unknown] = [null]
     if (!a.FetchName(a.dpy, w, name) || !name[0]) continue
     const text = koffi.decode(name[0], 'str') as string
@@ -145,7 +176,7 @@ export function findWindow(title: string): WindowHandle | null {
 export function findWindowOf(program: RegExp): WindowHandle | null {
   const a = x11()
   if (!a) return null
-  for (const w of topLevel(a)) {
+  for (const w of allWindows(a)) {
     if (mapStateOf(a, w) !== IS_VIEWABLE) continue
     if (program.test(programOf(w) ?? '')) return w
   }
