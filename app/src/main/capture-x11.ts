@@ -148,13 +148,13 @@ export function programOf(hwnd: WindowHandle): string | null {
   if (token) {
     const unix = token.startsWith('/') ? token : winePathToUnix(token)
     if (unix && existsSync(unix)) return unix
-    if (token.startsWith('/')) return token
+    return token // a bare "Wow.exe" still names the program
   }
   // Without an .exe to map: the working directory stands for the program.
   try {
     return readlinkSync(`/proc/${pid}/cwd`)
   } catch {
-    return token
+    return null
   }
 }
 
@@ -172,7 +172,23 @@ export function findWindow(title: string): WindowHandle | null {
   return null
 }
 
-/** The first visible top-level window of a program whose full path matches, or null. */
+/**
+ * Every visible window, as "class<program>", for the record when the game is not found: what the
+ * screen holds, so a miss says why.
+ */
+export function describeScreen(): string[] {
+  const a = x11()
+  if (!a) return ['no X display']
+  const out: string[] = []
+  for (const w of allWindows(a)) {
+    if (mapStateOf(a, w) !== IS_VIEWABLE) continue
+    out.push(`${classOf(a, w) ?? '?'} <${programOf(w) ?? '?'}>`)
+    if (out.length >= 30) break
+  }
+  return out.length ? out : ['no visible windows']
+}
+
+/** The first visible window of a program whose full path matches, or null. */
 export function findWindowOf(program: RegExp): WindowHandle | null {
   const a = x11()
   if (!a) return null

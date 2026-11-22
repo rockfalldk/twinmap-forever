@@ -18,7 +18,7 @@ import { feedbackLink, sendFeedback } from '../shared/feedback'
 import { pageOf, setupComplete, setupPages, type SetupStatus } from '../shared/setup'
 import { tilesLine, type TilesStatus } from '../shared/tiles-status'
 import { placeWindow, WINDOW, ZOOMS, zoomStep } from '../shared/window'
-import { findGameWindow, programOf } from './capture'
+import { describeScreen, findGameWindow, programOf } from './capture'
 import { readHdr } from './hdr'
 import { gameFolderFrom, installedBuild, registryInstallPath, wineInstallPaths } from './client-files'
 import { homeAddress, LAN_PORT, startLan, type Lan, type Served } from './lan'
@@ -846,6 +846,8 @@ function createWindow(): void {
     record.note('optional addons', `Questie ${setup.questie ? 'yes' : 'no'}, Shortest Path ${setup.shortestPath ? 'yes' : 'no'}`)
     record.note('map', made.state === 'converting' ? 'being built' : tilesLine(made))
     record.note('link', heard.kind === 'update-app' || heard.kind === 'update-addon' ? `${heard.word}: ${heard.line}` : heard.word)
+    // On Linux, when the game's window is not found: what the screen holds, so the record says why.
+    if (heard.kind === 'closed' && process.platform !== 'win32') record.note('windows', describeScreen().join(' | '))
     // What the game says it has of the sends: a slot gone with no send beside it is a read that went wrong.
     const inbox = inboxFrom(link.snapshot().state.sections.inbox)
     if (inbox) record.note('game has', `send ${inbox.seq}, ${inbox.left} slots left${inbox.off ? `, ${inbox.off}` : ''}`)

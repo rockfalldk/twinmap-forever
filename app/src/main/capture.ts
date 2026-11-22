@@ -58,3 +58,9 @@ export const readRow = (hwnd: WindowHandle, edge: 'top' | 'bottom' = 'top'): Buf
  * piece of the screen leaves this computer (samples.ts). Always yes on X11.
  */
 export const showsOnly = (hwnd: WindowHandle, x: number, y: number, size: number): boolean => impl.showsOnly(hwnd, x, y, size)
+
+/**
+ * Every visible window, as "class<program>", for the record when the game is not found (Linux;
+ * empty on Windows). What the screen holds, so a miss says why.
+ */
+export const describeScreen = (): string[] => (process.platform === 'win32' ? [] : x11.describeScreen())

@@ -25,6 +25,8 @@ export type Updating = { version: string; percent: number; installing?: boolean 
 export function updateFirst(open: () => void, say: (line: string) => void): void {
   // Started by the installer after an update: it says so, and there is nothing newer to look for.
   if (!app.isPackaged || process.argv.includes('--updated')) return open()
+  // On Linux the update works only for the AppImage (electron-updater reads APPIMAGE); a .deb is reinstalled by hand.
+  if (process.platform === 'linux' && !process.env.APPIMAGE) return open()
   let opened = false
   let win: BrowserWindow | null = null
   // Whatever goes wrong, at any point, the app opens as it is: an update is never a reason not to start.
