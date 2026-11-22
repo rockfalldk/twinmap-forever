@@ -77,7 +77,9 @@ function load() {
     } catch {
       sockets = '(no /tmp/.X11-unix)'
     }
-    throw new Error(`no X display (DISPLAY=${process.env.DISPLAY ?? 'unset'}, XAUTHORITY=${process.env.XAUTHORITY ?? 'unset'}, sockets=${sockets})`)
+    throw new Error(
+      `no X display (session=${process.env.XDG_SESSION_TYPE ?? '?'}, DISPLAY=${process.env.DISPLAY ?? 'unset'}, XAUTHORITY=${process.env.XAUTHORITY ?? 'unset'}, sockets=${sockets}); run the game through X11/XWayland for the screen to be read`,
+    )
   }
   const api = {
     dpy,
