@@ -6,8 +6,9 @@ import readerPath from './hdr-reader?modulePath'
 
 const WITHIN = 5000 // ms a reading may take: a process starts, a frame of the screen comes
 
-/** The rectangle of the desktop as the game drew it, or null when there is no such reading to be had (see readHdrRect). */
+/** The rectangle of the desktop as the game drew it, or null when there is no such reading to be had (see readHdrRect). HDR reading is DirectX: Windows only, null anywhere else. */
 export function readHdr(ask: HdrAsk): Promise<{ width: number; height: number; rgb: Uint8Array } | null> {
+  if (process.platform !== 'win32') return Promise.resolve(null)
   return new Promise((done) => {
     const reader = utilityProcess.fork(readerPath)
     let over = false

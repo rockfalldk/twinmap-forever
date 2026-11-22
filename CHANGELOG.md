@@ -2,6 +2,12 @@
 
 What changed in each version of Twinmap, newest first. The section of a version is also the text of its release on GitHub and of the addon's file on CurseForge.
 
+## Unreleased
+
+### New
+
+- **Linux.** The app builds and runs on Linux as a .deb (and from the sources): the screen is read through X11, so the game under Wine works, on X11 and on Wayland through XWayland. The game folder is found in the usual Wine prefixes (WINEPREFIX, ~/.wine, Steam Proton), from the running game, or picked by hand. HDR reading stays Windows-only. Auto-update on Linux needs the AppImage; a .deb is installed by hand.
+
 ## 0.15.0 - 2026-11-22
 
 ### New

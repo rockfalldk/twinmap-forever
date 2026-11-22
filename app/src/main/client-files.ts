@@ -14,6 +14,7 @@
 //   root                   file number -> content key
 import { execFileSync } from 'node:child_process'
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { inflateSync } from 'node:zlib'
 import { salsa20 } from '../shared/salsa20'
@@ -82,8 +83,9 @@ export function gameFolderFrom(paths: (string | null)[]): string | null {
   return null
 }
 
-/** Where the game's installer said it put the game, or null. */
+/** Where the game's installer said it put the game, or null. Windows only: the registry; on Linux the Wine installs are looked at instead (wineInstallPaths). */
 export function registryInstallPath(): string | null {
+  if (process.platform !== 'win32') return null
   try {
     const out = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\WOW6432Node\\Blizzard Entertainment\\World of Warcraft', '/v', 'InstallPath'], {
       encoding: 'utf8',
@@ -93,6 +95,57 @@ export function registryInstallPath(): string | null {
   } catch {
     return null
   }
+}
+
+/** The Wine prefixes on this computer, roots holding a drive_c: WINEPREFIX, the default ~/.wine, and the Steam Proton ones. Empty on Windows. */
+export function winePrefixes(): string[] {
+  if (process.platform === 'win32') return []
+  const out: string[] = []
+  if (process.env.WINEPREFIX) out.push(process.env.WINEPREFIX)
+  out.push(join(homedir(), '.wine'))
+  try {
+    const compat = join(homedir(), '.local', 'share', 'Steam', 'steamapps', 'compatdata')
+    for (const id of readdirSync(compat)) {
+      const pfx = join(compat, id, 'pfx')
+      if (existsSync(pfx)) out.push(pfx)
+    }
+  } catch {
+    // no Steam: no Proton prefixes
+  }
+  return out
+}
+
+/**
+ * A Windows path of a program run under Wine, as a path on this computer, or null. The C: drive
+ * lives in drive_c of the first prefix; another drive maps to / (Wine's default Z:).
+ */
+export function winePathToUnix(winPath: string): string | null {
+  const p = winPath.replace(/\\/g, '/')
+  if (p.startsWith('/')) return p
+  const m = /^([A-Za-z]):\/(.*)$/.exec(p)
+  if (!m) return null
+  const [, drive, rest] = m
+  const parts = rest.split('/').filter(Boolean)
+  if (drive.toLowerCase() === 'c') {
+    const prefixes = winePrefixes()
+    if (!prefixes.length) return null
+    return join(prefixes[0]!, 'drive_c', ...parts)
+  }
+  return join('/', ...parts)
+}
+
+/** The game folders of the Wine installs on this computer, where the installer usually puts them, or none. Empty on Windows. */
+export function wineInstallPaths(): string[] {
+  if (process.platform === 'win32') return []
+  const out: string[] = []
+  for (const prefix of winePrefixes()) {
+    const drive = join(prefix, 'drive_c')
+    for (const rel of ['World of Warcraft', 'Program Files/World of Warcraft', 'Program Files (x86)/World of Warcraft', 'Games/World of Warcraft']) {
+      const folder = join(drive, ...rel.split('/'))
+      if (installedBuild(folder)) out.push(folder)
+    }
+  }
+  return out
 }
 
 /**
