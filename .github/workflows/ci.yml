@@ -40,6 +40,12 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run dist:linux
+      # The .deb of this run, to download from the Actions tab (90 days).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: twinmap-deb
+          path: app/dist/*.deb
+          retention-days: 90
 
   server:
     runs-on: ubuntu-latest
