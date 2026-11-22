@@ -164,13 +164,12 @@ export function exeTokenOf(cmdline: string): string | null {
   return args.find((a) => /\.exe$/i.test(a)) ?? null
 }
 
-/** The class of a window, as the program sets it (Wine sets the .exe's name), or null. */
+/** The class of a window, as the program sets it (Wine sets the .exe's name), or null. A char * field decodes as a string already. */
 function classOf(a: NonNullable<ReturnType<typeof x11>>, hwnd: WindowHandle): string | null {
   const hint = koffi.alloc('XClassHint', 1)
   if (!a.GetClassHint(a.dpy, hwnd, hint)) return null
-  const h = koffi.decode(hint, 'XClassHint') as { res_name: unknown; res_class: unknown }
-  const name = h.res_class ? (koffi.decode(h.res_class, 'str') as string) : h.res_name ? (koffi.decode(h.res_name, 'str') as string) : null
-  return name
+  const h = koffi.decode(hint, 'XClassHint') as { res_name: string | null; res_class: string | null }
+  return h.res_class || h.res_name || null
 }
 
 /** The full path of the program that owns a window, as a path on this computer, or null. */
@@ -223,7 +222,11 @@ export function describeScreen(): string[] {
   const out: string[] = []
   for (const w of allWindows(a)) {
     if (mapStateOf(a, w) !== IS_VIEWABLE) continue
-    out.push(`${classOf(a, w) ?? '?'} <${programOf(w) ?? '?'}>`)
+    try {
+      out.push(`${classOf(a, w) ?? '?'} <${programOf(w) ?? '?'}>`)
+    } catch {
+      out.push('?')
+    }
     if (out.length >= 30) break
   }
   return out.length ? out : ['no visible windows']
